@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartPlant - ESP32 Pflanzen-Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .fade-in { animation: fadeIn 0.25s ease-in-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-stone-100 text-stone-800 min-h-screen font-sans">
+
+    <!-- Navigation -->
+    <header class="bg-emerald-800 text-white shadow-md">
+        <div class="max-w-5xl mx-auto px-4 py-4 flex justify-between items-center">
+            <div class="flex items-center space-x-2 cursor-pointer" onclick="showDashboard()">
+                <span class="text-2xl">🌱</span>
+                <h1 class="text-xl font-bold tracking-wide">SmartPlant Monitor</h1>
+            </div>
+            <button onclick="openAddModal()" class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition shadow-sm flex items-center gap-2">
+                <span>+ Pflanze & ESP32 verbinden</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Hauptbereich -->
+    <main class="max-w-5xl mx-auto px-4 py-8">
+        
+        <!-- ANSICHT 1: Dashboard (Pflanzenübersicht) -->
+        <section id="dashboard-view" class="fade-in">
+            <div class="mb-6">
+                <h2 class="text-2xl font-bold text-stone-800">Meine Zimmerpflanzen</h2>
+                <p class="text-stone-500 text-sm">Klicke auf eine Pflanze, um Live-Sensordaten des ESP32 und Pflegetipps der Plantbook API zu laden.</p>
+            </div>
+
+            <!-- Grid für die Pflanzenkarten -->
+            <div id="plant-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+                <!-- Wird dynamisch per JavaScript gefüllt -->
+            </div>
+        </section>
+
+        <!-- ANSICHT 2: Detailansicht einer Pflanze -->
+        <section id="detail-view" class="hidden fade-in">
+            <button onclick="showDashboard()" class="mb-6 inline-flex items-center text-emerald-700 hover:text-emerald-900 font-medium text-sm transition">
+                ← Zurück zur Übersicht
+            </button>
+
+            <div class="bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden">
+                <!-- Lade-Indikator für API Call -->
+                <div id="detail-loading" class="p-12 text-center">
+                    <div class="inline-block animate-spin rounded-full h-8 w-8 border-4 border-emerald-600 border-t-transparent mb-4"></div>
+                    <p class="text-stone-500">Hole Pflanzendaten von Open Plantbook API & lese ESP32-Sensor...</p>
+                </div>
+
+                <!-- Inhalt der Detailansicht -->
+                <div id="detail-content" class="hidden">
+                    <div class="grid grid-cols-1 md:grid-cols-3">
+                        <!-- Pflanzenbild & Basis-Info -->
+                        <div class="bg-stone-50 p-6 flex flex-col items-center justify-center border-b md:border-b-0 md:border-r border-stone-200">
+                            <img id="detail-img" src="" alt="Pflanze" class="w-48 h-48 object-cover rounded-xl shadow-sm mb-4 bg-white">
+                            <h2 id="detail-name" class="text-2xl font-bold text-center text-stone-800"></h2>
+                            <p id="detail-pid" class="text-sm italic text-stone-500 mb-4"></p>
+                            <span id="detail-esp" class="px-3 py-1 bg-stone-200 text-stone-700 rounded-full text-xs font-mono"></span>
+                        </div>
+
+                        <!-- ESP32 Status & Plantbook Tipps -->
+                        <div class="p-6 md:col-span-2 flex flex-col justify-between space-y-6">
+                            
+                            <!-- Bodenfeuchtigkeit (ESP32 vs. Sollwert) -->
+                            <div class="bg-emerald-50/70 border border-emerald-100 rounded-xl p-5">
+                                <div class="flex justify-between items-center mb-2">
+                                    <span class="text-sm font-semibold text-emerald-950 uppercase tracking-wider">Aktuelle Bodenfeuchtigkeit (ESP32)</span>
+                                    <span id="moisture-badge" class="px-2.5 py-0.5 rounded-full text-xs font-bold"></span>
+                                </div>
+                                
+                                <div class="flex items-baseline gap-2 mb-3">
+                                    <span id="detail-moisture" class="text-4xl font-extrabold text-emerald-800"></span>
+                                    <span id="detail-moisture-target" class="text-sm text-stone-500"></span>
+                                </div>
+
+                                <!-- Fortschrittsbalken -->
+                                <div class="w-full bg-stone-200 rounded-full h-3 mb-4 overflow-hidden">
+                                    <div id="moisture-bar" class="bg-emerald-600 h-3 rounded-full transition-all duration-500" style="width: 0%"></div>
+                                </div>
+
+                                <!-- Dynamischer Giess-Tipp & Pumpen-Steuerung -->
+                                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2 border-t border-emerald-100">
+                                    <p id="watering-advice" class="text-sm text-stone-700 font-medium"></p>
+                                    <button onclick="triggerWatering()" id="water-btn" class="shrink-0 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition shadow-sm">
+                                        💧 Jetzt giessen (ESP32)
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Offizielle Plantbook Pflege-Parameter -->
+                            <div>
+                                <h3 class="text-lg font-bold text-stone-800 mb-3">Ideale Bedingungen & Tipps (Open Plantbook)</h3>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div class="p-4 rounded-xl border border-stone-200 bg-stone-50/50">
+                                        <div class="text-xs text-stone-400 uppercase font-semibold mb-1">☀️ Lichtbedarf</div>
+                                        <div id="tip-light" class="font-semibold text-stone-800 text-sm"></div>
+                                        <p id="tip-light-desc" class="text-xs text-stone-500 mt-1"></p>
+                                    </div>
+                                    <div class="p-4 rounded-xl border border-stone-200 bg-stone-50/50">
+                                        <div class="text-xs text-stone-400 uppercase font-semibold mb-1">🌡️ Temperatur</div>
+                                        <div id="tip-temp" class="font-semibold text-stone-800 text-sm"></div>
+                                        <p class="text-xs text-stone-500 mt-1">Optimaler Bereich für gesundes Wachstum.</p>
+                                    </div>
+                                    <div class="p-4 rounded-xl border border-stone-200 bg-stone-50/50">
+                                        <div class="text-xs text-stone-400 uppercase font-semibold mb-1">💨 Luftfeuchtigkeit</div>
+                                        <div id="tip-humidity" class="font-semibold text-stone-800 text-sm"></div>
+                                        <p id="tip-humidity-desc" class="text-xs text-stone-500 mt-1"></p>
+                                    </div>
+                                    <div class="p-4 rounded-xl border border-stone-200 bg-stone-50/50">
+                                        <div class="text-xs text-stone-400 uppercase font-semibold mb-1">🌱 Düngen (EC-Wert)</div>
+                                        <div id="tip-ec" class="font-semibold text-stone-800 text-sm"></div>
+                                        <p class="text-xs text-stone-500 mt-1">Nährstoffbedarf im Substrat.</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- MODAL: Neue Pflanze + ESP32 hinzufügen -->
+    <div id="add-modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl fade-in">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold text-stone-800">Pflanze & ESP32 verbinden</h3>
+                <button onclick="closeAddModal()" class="text-stone-400 hover:text-stone-600 text-xl">&times;</button>
+            </div>
+            <form onsubmit="addNewPlant(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold uppercase text-stone-500 mb-1">Dein Spitzname für die Pflanze</label>
+                    <input type="text" id="input-nickname" required placeholder="z.B. Monstera im Wohnzimmer" class="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:border-emerald-600">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase text-stone-500 mb-1">Wissenschaftlicher Name (für Plantbook API)</label>
+                    <input type="text" id="input-pid" required placeholder="z.B. monstera deliciosa, ficus lyrata, aloe vera" class="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:border-emerald-600">
+                    <p class="text-xs text-stone-400 mt-1">Kleinschreibung, z.B. <code>spathiphyllum wallisii</code> oder <code>epipremnum aureum</code></p>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold uppercase text-stone-500 mb-1">ESP32 Geräte-ID / IP</label>
+                        <input type="text" id="input-esp" required placeholder="192.168.1.105" class="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm font-mono focus:outline-none focus:border-emerald-600">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase text-stone-500 mb-1">Aktuelle Feuchte (%)</label>
+                        <input type="number" id="input-moisture" required min="0" max="100" value="35" class="w-full px-3 py-2 border border-stone-300 rounded-lg text-sm focus:outline-none focus:border-emerald-600">
+                    </div>
+                </div>
+                <div class="pt-2 flex justify-end gap-2">
+                    <button type="button" onclick="closeAddModal()" class="px-4 py-2 text-sm text-stone-600 hover:bg-stone-100 rounded-lg">Abbrechen</button>
+                    <button type="submit" class="px-4 py-2 text-sm bg-emerald-700 hover:bg-emerald-600 text-white font-medium rounded-lg">Speichern</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Dein aktualisierter Open Plantbook API Key (40-stelliger Token)
+        const PLANTBOOK_API_KEY = '50c7f0e511ce2e0663396dac9c1ad8d8eb1c11eb';
+
+        // Beispiel-Pflanzen zum Start (werden im LocalStorage gespeichert)
+        const defaultPlants = [
+            {
+                id: 1,
+                nickname: 'Monstera Wohnzimmer',
+                pid: 'monstera deliciosa',
+                espId: 'ESP32-Node-01 (192.168.1.42)',
+                currentMoisture: 22
+            },
+            {
+                id: 2,
+                nickname: 'Geigenfeige Büro',
+                pid: 'ficus lyrata',
+                espId: 'ESP32-Node-02 (192.168.1.43)',
+                currentMoisture: 48
+            },
+            {
+                id: 3,
+                nickname: 'Bogenhanf Schlafzimmer',
+                pid: 'sansevieria trifasciata',
+                espId: 'ESP32-Node-03 (192.168.1.44)',
+                currentMoisture: 18
+            }
+        ];
+
+        let plants = JSON.parse(localStorage.getItem('smartplants')) || defaultPlants;
+        let activePlantIndex = null;
+        let plantCache = {};
+
+        // Initialisierung beim Laden
+        function init() {
+            renderDashboard();
+        }
+
+        // Dashboard Karten rendern
+        function renderDashboard() {
+            const grid = document.getElementById('plant-grid');
+            grid.innerHTML = '';
+
+            plants.forEach((plant, index) => {
+                let badgeColor = 'bg-emerald-100 text-emerald-800';
+                if (plant.currentMoisture < 25) {
+                    badgeColor = 'bg-amber-100 text-amber-800';
+                }
+
+                const card = document.createElement('div');
+                card.className = 'bg-white rounded-2xl p-5 shadow-sm border border-stone-200 hover:shadow-md hover:border-emerald-500 transition cursor-pointer flex flex-col justify-between';
+                card.onclick = () => openPlantDetail(index);
+
+                card.innerHTML = `
+                    <div>
+                        <div class="flex justify-between items-start mb-3">
+                            <span class="text-xs font-mono bg-stone-100 text-stone-600 px-2.5 py-1 rounded-md">🔌 ${plant.espId}</span>
+                            <span class="text-xs font-bold px-2.5 py-1 rounded-full ${badgeColor}">${plant.currentMoisture}% Feuchte</span>
+                        </div>
+                        <h3 class="text-lg font-bold text-stone-800">${plant.nickname}</h3>
+                        <p class="text-xs italic text-stone-400 mb-4">${plant.pid}</p>
+                    </div>
+                    <div class="pt-3 border-t border-stone-100 flex justify-between items-center text-xs text-emerald-700 font-medium">
+                        <span>Details & Pflegetipps ansehen</span>
+                        <span>→</span>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        // Daten von der Open Plantbook API abrufen
+        async function fetchPlantbookData(pid) {
+            if (plantCache[pid]) {
+                return plantCache[pid];
+            }
+
+            const url = `https://open.plantbook.io/api/v1/plant/detail/${encodeURIComponent(pid.trim().toLowerCase())}/`;
+            
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Token ${PLANTBOOK_API_KEY}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`Pflanze "${pid}" konnte nicht geladen werden (HTTP-Status ${response.status}).`);
+            }
+
+            const data = await response.json();
+            plantCache[pid] = data;
+            return data;
+        }
+
+        // Detailansicht öffnen
+        async function openPlantDetail(index) {
+            activePlantIndex = index;
+            const plant = plants[index];
+
+            document.getElementById('dashboard-view').classList.add('hidden');
+            document.getElementById('detail-view').classList.remove('hidden');
+            document.getElementById('detail-loading').classList.remove('hidden');
+            document.getElementById('detail-content').classList.add('hidden');
+
+            try {
+                const apiData = await fetchPlantbookData(plant.pid);
+                renderDetailContent(plant, apiData);
+            } catch (error) {
+                alert(error.message + '\n\nTipp: Nutze den exakten botanischen Namen in Kleinschreibung (z.B. "monstera deliciosa").');
+                showDashboard();
+            }
+        }
+
+        // Detailansicht mit API-Daten und ESP32-Werten füllen
+        function renderDetailContent(plant, apiData) {
+            document.getElementById('detail-loading').classList.add('hidden');
+            document.getElementById('detail-content').classList.remove('hidden');
+
+            document.getElementById('detail-img').src = apiData.image_url || 'https://images.unsplash.com/photo-1459411552884-841db9b3cc2a?auto=format&fit=crop&w=400&q=80';
+            document.getElementById('detail-name').textContent = plant.nickname;
+            document.getElementById('detail-pid').textContent = `${apiData.display_pid} (${apiData.alias || apiData.pid})`;
+            document.getElementById('detail-esp').textContent = `Verbunden: ${plant.espId}`;
+
+            const minMoist = apiData.min_soil_moist;
+            const maxMoist = apiData.max_soil_moist;
+            const curMoist = plant.currentMoisture;
+
+            document.getElementById('detail-moisture').textContent = `${curMoist}%`;
+            document.getElementById('detail-moisture-target').textContent = `(Ideal laut Plantbook: ${minMoist}% bis ${maxMoist}%)`;
+            document.getElementById('moisture-bar').style.width = `${Math.min(100, Math.max(0, curMoist))}%`;
+
+            const badge = document.getElementById('moisture-badge');
+            const bar = document.getElementById('moisture-bar');
+            const advice = document.getElementById('watering-advice');
+
+            if (curMoist < minMoist) {
+                badge.textContent = 'Zu trocken – Bitte giessen!';
+                badge.className = 'px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-800';
+                bar.className = 'bg-red-500 h-3 rounded-full transition-all duration-500';
+                advice.textContent = `⚠️ Die Erde ist unter dem Minimum von ${minMoist}%. Starte die ESP32-Pumpe oder giesse manuell.`;
+            } else if (curMoist > maxMoist) {
+                badge.textContent = 'Zu nass!';
+                badge.className = 'px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800';
+                bar.className = 'bg-blue-500 h-3 rounded-full transition-all duration-500';
+                advice.textContent = `🛑 Achtung vor Staunässe! Der Wert liegt über dem Maximum von ${maxMoist}%. Erst wieder giessen, wenn die Erde abtrocknet.`;
+            } else {
+                badge.textContent = 'Optimal versorgt';
+                badge.className = 'px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-200 text-emerald-900';
+                bar.className = 'bg-emerald-600 h-3 rounded-full transition-all duration-500';
+                advice.textContent = `✅ Perfekt! Die Bodenfeuchtigkeit liegt genau im Idealbereich für ${apiData.display_pid}.`;
+            }
+
+            document.getElementById('tip-light').textContent = `${apiData.min_light_lux} – ${apiData.max_light_lux} Lux`;
+            document.getElementById('tip-light-desc').textContent = apiData.min_light_lux > 2000 
+                ? 'Braucht einen sehr hellen Standort, gerne nah am Fenster.' 
+                : 'Kommt auch mit Halbschatten und indirektem Licht gut zurecht.';
+
+            document.getElementById('tip-temp').textContent = `${apiData.min_temp}°C bis ${apiData.max_temp}°C`;
+            
+            document.getElementById('tip-humidity').textContent = `${apiData.min_env_humid}% bis ${apiData.max_env_humid}%`;
+            document.getElementById('tip-humidity-desc').textContent = apiData.min_env_humid >= 50 
+                ? 'Mag hohe Luftfeuchtigkeit – Blätter ab und zu mit Wasser besprühen.' 
+                : 'Kommt problemlos mit normaler Zimmerluft klar.';
+
+            document.getElementById('tip-ec').textContent = `${apiData.min_soil_ec} – ${apiData.max_soil_ec} µS/cm`;
+        }
+
+        // Simulierter Befehl an den ESP32 zum Giessen
+        function triggerWatering() {
+            if (activePlantIndex === null) return;
+            const plant = plants[activePlantIndex];
+            const btn = document.getElementById('water-btn');
+
+            btn.disabled = true;
+            btn.textContent = '⏳ Pumpe läuft (ESP32)...';
+
+            setTimeout(async () => {
+                plant.currentMoisture = Math.min(100, plant.currentMoisture + 20);
+                localStorage.setItem('smartplants', JSON.stringify(plants));
+                
+                btn.disabled = false;
+                btn.textContent = '💧 Jetzt giessen (ESP32)';
+
+                const apiData = await fetchPlantbookData(plant.pid);
+                renderDetailContent(plant, apiData);
+                renderDashboard();
+            }, 1200);
+        }
+
+        function showDashboard() {
+            document.getElementById('detail-view').classList.add('hidden');
+            document.getElementById('dashboard-view').classList.remove('hidden');
+            activePlantIndex = null;
+        }
+
+        function openAddModal() {
+            document.getElementById('add-modal').classList.remove('hidden');
+            document.getElementById('add-modal').classList.add('flex');
+        }
+
+        function closeAddModal() {
+            document.getElementById('add-modal').classList.add('hidden');
+            document.getElementById('add-modal').classList.remove('flex');
+        }
+
+        function addNewPlant(event) {
+            event.preventDefault();
+            const nickname = document.getElementById('input-nickname').value;
+            const pid = document.getElementById('input-pid').value.trim().toLowerCase();
+            const espId = document.getElementById('input-esp').value;
+            const currentMoisture = parseInt(document.getElementById('input-moisture').value, 10);
+
+            plants.push({
+                id: Date.now(),
+                nickname,
+                pid,
+                espId,
+                currentMoisture
+            });
+
+            localStorage.setItem('smartplants', JSON.stringify(plants));
+            renderDashboard();
+            closeAddModal();
+            event.target.reset();
+        }
+
+        init();
+    </script>
+</body>
+</html>
