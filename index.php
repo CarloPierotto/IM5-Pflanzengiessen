@@ -1,20 +1,10 @@
 <?php
-// Datenbank-Verbindung (Passe diese 4 Werte an deinen Webserver an)
-$host = 'localhost';
-$dbname = 'dein_datenbankname';
-$user = 'dein_db_user';
-$pass = 'dein_db_passwort';
+// Datenbankverbindung einbinden
+require_once 'config.php';
 
-try {
-    $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $user, $pass);
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
-    // Nur Nickname und aktuellen Feuchtigkeitsstand aus der Tabelle 'plants' holen
-    $stmt = $pdo->query("SELECT nickname, current_moisture FROM plants ORDER BY id ASC");
-    $plants = $stmt->fetchAll(PDO::FETCH_ASSOC);
-} catch (PDOException $e) {
-    die("Datenbankfehler: " . $e->getMessage());
-}
+// Nur Nickname und aktuellen Feuchtigkeitsstand aus der Tabelle 'plants' holen
+$stmt = $pdo->query("SELECT nickname, current_moisture FROM plants ORDER BY id ASC");
+$plants = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <!DOCTYPE html>
 <html lang="de">
