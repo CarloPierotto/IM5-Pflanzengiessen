@@ -2,7 +2,6 @@ const PLANTBOOK_API_KEY = '50c7f0e511ce2e0663396dac9c1ad8d8eb1c11eb';
 const plantCache = {};
 let currentPlant = null;
 
-// Hilfsfunktion: Blendet alle Ansichten aus
 function hideAllViews() {
     document.getElementById('main-view').classList.add('hidden');
     document.getElementById('detail-view').classList.add('hidden');
@@ -13,7 +12,6 @@ function hideAllViews() {
     if (fab) fab.classList.add('hidden');
 }
 
-// Übersetzt beliebige englische Texte automatisch auf Deutsch
 async function translateToGerman(text) {
     if (!text) return 'Keine Angabe';
     try {
@@ -39,6 +37,7 @@ function updateDetailBar(min, max, current) {
     idealBar.style.width = `${width}%`;
     marker.style.left = `${cleanCur}%`;
 
+    document.getElementById('det-moisture-val').textContent = `${cleanCur}%`;
     document.getElementById('det-ideal-text').textContent = `${cleanMin}% – ${cleanMax}%`;
 }
 
@@ -107,9 +106,9 @@ async function saveMoisture(event) {
         updateDetailBar(newMin, newMax, currentPlant.current_moisture);
         btn.textContent = 'Gespeichert! ✓';
         setTimeout(() => {
-            btn.textContent = 'Speichern';
+            btn.textContent = 'Änderungen speichern';
             document.getElementById('edit-form').classList.add('hidden');
-        }, 800);
+        }, 1000);
     } else {
         btn.textContent = 'Fehler beim Speichern!';
     }
@@ -146,12 +145,118 @@ async function fetchPlantbookData(pid) {
 }
 
 // =========================================================
-// PFLANZE HINZUFÜGEN & PLANTBOOK-SUCHE
+// PFLANZE HINZUFÜGEN, KI-FOTO-ERKENNUNG & PLANTBOOK-SUCHE
 // =========================================================
+
+let fetchedMinMoist = 20;
+let fetchedMaxMoist = 60;
 
 function showAddView() {
     hideAllViews();
     document.getElementById('add-view').classList.remove('hidden');
+}
+
+// Komprimiert Handyfotos im Browser auf max. 800px für schnellen Upload
+function compressImage(file) {
+    return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const maxDim = 800;
+                let w = img.width;
+                let h = img.height;
+                if (w > h && w > maxDim) {
+                    h *= maxDim / w;
+                    w = maxDim;
+                } else if (h > maxDim) {
+                    w *= maxDim / h;
+                    h = maxDim;
+                }
+                canvas.width = w;
+                canvas.height = h;
+                canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                canvas.toBlob((blob) => resolve(blob || file), 'image/jpeg', 0.8);
+            };
+            img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    });
+}
+
+// Sendet das aufgenommene Foto an identify_plant.php (Pl@ntNet KI)
+async function identifyPlantByPhoto(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const previewBox = document.getElementById('ai-preview-box');
+    const previewImg = document.getElementById('ai-preview-img');
+    const resTitle = document.getElementById('ai-result-title');
+    const resSub = document.getElementById('ai-result-sub');
+
+    previewImg.src = URL.createObjectURL(file);
+    previewBox.classList.remove('hidden');
+    resTitle.textContent = 'KI analysiert Foto...';
+    resSub.textContent = 'Einen Moment bitte';
+
+    try {
+        const compressedBlob = await compressImage(file);
+        const formData = new FormData();
+        formData.append('image', compressedBlob, 'plant.jpg');
+
+        const response = await fetch('identify_plant.php', {
+            method: 'POST',
+            body: formData
+        });
+        const result = await response.json();
+
+        if (!result.success) {
+            resTitle.textContent = 'Nicht erkannt';
+            resSub.textContent = result.error || 'Bitte versuche es erneut oder nutze die Suche.';
+            return;
+        }
+
+        resTitle.textContent = `${result.display_name} (${result.score}%)`;
+        resSub.textContent = `Botanisch: ${result.scientific_name}`;
+
+        // Automatisch in Plantbook nach dem erkannten Namen suchen und auswählen
+        document.getElementById('plant-search-input').value = result.scientific_name;
+        await autoMatchPlantbook(result.scientific_name, result.display_name);
+
+    } catch (error) {
+        resTitle.textContent = 'Verbindungsfehler';
+        resSub.textContent = 'Foto konnte nicht ausgewertet werden.';
+    }
+}
+
+// Prüft, ob die von der KI erkannte Pflanze in Open Plantbook existiert
+async function autoMatchPlantbook(scientificName, displayName) {
+    try {
+        const url = `https://open.plantbook.io/api/v1/plant/search?alias=${encodeURIComponent(scientificName)}`;
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Token ${PLANTBOOK_API_KEY}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            if (data.results && data.results.length > 0) {
+                // Ersten Treffer direkt auswählen
+                await selectPlantFromSearch(data.results[0].pid, displayName);
+                return;
+            }
+        }
+        // Falls exakter Artname nichts liefert, nur nach der Gattung (erstes Wort, z.B. "monstera") suchen
+        const genus = scientificName.split(' ')[0];
+        document.getElementById('plant-search-input').value = genus;
+        await searchPlants();
+    } catch (e) {
+        await searchPlants();
+    }
 }
 
 async function searchPlants() {
@@ -184,15 +289,15 @@ async function searchPlants() {
         resultsContainer.innerHTML = '';
         data.results.forEach(item => {
             const row = document.createElement('div');
-            row.className = 'p-2.5 text-xs hover:bg-emerald-50 cursor-pointer transition flex justify-between items-center';
+            row.className = 'p-3 text-xs hover:bg-stone-100 cursor-pointer transition flex justify-between items-center';
             row.innerHTML = `
                 <div>
-                    <span class="font-bold text-stone-800 block">${item.display_pid}</span>
+                    <span class="font-semibold text-stone-800 block">${item.display_pid}</span>
                     <span class="text-stone-400 italic">${item.alias}</span>
                 </div>
-                <span class="text-emerald-700 font-medium">Auswählen →</span>
+                <span class="text-stone-900 font-medium">Auswählen</span>
             `;
-            row.onclick = () => selectPlantFromSearch(item.pid);
+            row.onclick = () => selectPlantFromSearch(item.pid, item.display_pid);
             resultsContainer.appendChild(row);
         });
     } catch (error) {
@@ -200,8 +305,11 @@ async function searchPlants() {
     }
 }
 
-async function selectPlantFromSearch(pid) {
+async function selectPlantFromSearch(pid, displayName) {
     document.getElementById('new-pid').value = pid;
+    if (!document.getElementById('new-nickname').value) {
+        document.getElementById('new-nickname').value = displayName;
+    }
     document.getElementById('search-results').classList.add('hidden');
 
     try {
@@ -216,12 +324,8 @@ async function selectPlantFromSearch(pid) {
 
         if (response.ok) {
             const details = await response.json();
-            if (details.min_soil_moist !== undefined) {
-                document.getElementById('new-min').value = details.min_soil_moist;
-            }
-            if (details.max_soil_moist !== undefined) {
-                document.getElementById('new-max').value = details.max_soil_moist;
-            }
+            if (details.min_soil_moist !== undefined) fetchedMinMoist = details.min_soil_moist;
+            if (details.max_soil_moist !== undefined) fetchedMaxMoist = details.max_soil_moist;
         }
     } catch (e) {}
 }
@@ -233,7 +337,7 @@ async function createNewPlant(event) {
     const submitBtn = document.getElementById('add-submit-btn');
 
     if (!pid) {
-        errorEl.textContent = 'Bitte suche und wähle zuerst oben eine Pflanzenart aus.';
+        errorEl.textContent = 'Bitte mache zuerst ein Foto oder suche eine Pflanzenart aus.';
         errorEl.classList.remove('hidden');
         return;
     }
@@ -243,8 +347,8 @@ async function createNewPlant(event) {
 
     const formData = new URLSearchParams();
     formData.append('plantbook_pid', pid);
-    formData.append('min_moisture', document.getElementById('new-min').value);
-    formData.append('max_moisture', document.getElementById('new-max').value);
+    formData.append('min_moisture', fetchedMinMoist);
+    formData.append('max_moisture', fetchedMaxMoist);
     formData.append('nickname', document.getElementById('new-nickname').value);
     formData.append('esp_device_id', document.getElementById('new-esp').value);
 
@@ -259,12 +363,12 @@ async function createNewPlant(event) {
     } else {
         errorEl.textContent = result.error || 'Fehler beim Speichern.';
         errorEl.classList.remove('hidden');
-        submitBtn.textContent = 'Pflanze speichern';
+        submitBtn.textContent = 'Pflanze hinzufügen';
     }
 }
 
 // =========================================================
-// LOGIN, REGISTRIERUNG & LOGOUT
+// LOGIN & AUTH
 // =========================================================
 
 function toggleAuthView() {
@@ -283,14 +387,14 @@ function switchAuthMode() {
 
     if (actionInput.value === 'login') {
         actionInput.value = 'register';
-        title.textContent = 'Neues Konto erstellen';
-        submitBtn.textContent = 'Registrieren';
-        switchBtn.textContent = 'Bereits ein Konto? Jetzt anmelden';
+        title.textContent = 'Registrieren';
+        submitBtn.textContent = 'Konto erstellen';
+        switchBtn.textContent = 'Bereits ein Konto? Anmelden';
     } else {
         actionInput.value = 'login';
         title.textContent = 'Anmelden';
         submitBtn.textContent = 'Anmelden';
-        switchBtn.textContent = 'Noch kein Konto? Jetzt registrieren';
+        switchBtn.textContent = 'Noch kein Konto? Registrieren';
     }
 }
 
