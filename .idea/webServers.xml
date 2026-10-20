@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="9ddd5cdb-6ce3-499b-9ccd-6470ea04cb61" name="Hostpoint FHGR" url="http://sl203.web.hostpoint.ch">
+        <fileTransfer host="sl203.web.hostpoint.ch" port="21">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>
