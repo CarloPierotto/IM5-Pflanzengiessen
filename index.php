@@ -1,8 +1,7 @@
 <?php
-// Datenbankverbindung einbinden
 require_once 'config.php';
 
-// Alle Pflanzen aus der Tabelle 'plants' holen (inklusive der plantbook_pid für den API-Abruf)
+// Alle Pflanzen aus der Tabelle holen (inklusive min_moisture und max_moisture)
 $stmt =$pdo->query("SELECT * FROM plants ORDER BY id ASC");
 $plants =$stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
@@ -54,28 +53,41 @@ $plants =$stmt->fetchAll(PDO::FETCH_ASSOC);
                     <span id="det-moisture-badge" class="font-bold px-2.5 py-1 rounded-lg text-sm"></span>
                 </div>
 
-                <!-- Lade-Indikator für API -->
-                <div id="api-loading" class="text-center py-6 text-stone-400 text-sm">
-                    Lade Pflegetipps von Open Plantbook...
+                <!-- Formular zum Bearbeiten der idealen Bodenfeuchte (aus Datenbank) -->
+                <form id="edit-form" onsubmit="saveMoisture(event)" class="space-y-3 pt-3 border-t border-stone-100">
+                    <input type="hidden" id="det-id">
+                    <div class="text-xs font-semibold uppercase text-stone-500">Ideale Bodenfeuchte (%)</div>
+                    
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs text-stone-400 mb-1">Minimum</label>
+                            <input type="number" id="det-min" class="w-full bg-stone-50 border border-stone-200 rounded-lg px-3 py-1.5 text-sm font-medium focus:outline-none focus:border-emerald-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-stone-400 mb-1">Maximum</label>
+                            <input type="number" id="det-max" class="w-full bg-stone-50 border border-stone-200 rounded-lg px-3 py-1.5 text-sm font-medium focus:outline-none focus:border-emerald-500">
+                        </div>
+                    </div>
+
+                    <button type="submit" id="save-btn" class="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-medium py-2 rounded-lg text-sm transition mt-2">
+                        Änderungen speichern
+                    </button>
+                </form>
+
+                <!-- Lade-Indikator / Rest-Tipps von Plantbook API -->
+                <div id="api-loading" class="text-center py-4 text-stone-400 text-xs">
+                    Lade weitere Infos von Open Plantbook...
                 </div>
 
-                <!-- API Infos (werden per JavaScript gefüllt) -->
-                <div id="api-content" class="hidden space-y-3 pt-2 border-t border-stone-100 text-sm">
-                    <div class="flex justify-between">
-                        <span class="text-stone-500">Ideale Bodenfeuchte:</span>
-                        <span id="det-ideal-moist" class="font-medium"></span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span class="text-stone-500">Lichtbedarf (Lux):</span>
+                <!-- Restliche API Infos (Licht & Temperatur) -->
+                <div id="api-content" class="hidden space-y-2 pt-3 border-t border-stone-100 text-sm">
+                    <div class="flex justify-between text-xs">
+                        <span class="text-stone-500">Lichtbedarf:</span>
                         <span id="det-light" class="font-medium"></span>
                     </div>
-                    <div class="flex justify-between">
+                    <div class="flex justify-between text-xs">
                         <span class="text-stone-500">Temperatur:</span>
                         <span id="det-temp" class="font-medium"></span>
-                    </div>
-                    <div class="flex justify-between">
-                        <span class="text-stone-500">Luftfeuchtigkeit:</span>
-                        <span id="det-humid" class="font-medium"></span>
                     </div>
                 </div>
             </div>
@@ -84,48 +96,73 @@ $plants =$stmt->fetchAll(PDO::FETCH_ASSOC);
     </div>
 
     <script>
-                // Dein Plantbook API Key
         const PLANTBOOK_API_KEY = '50c7f0e511ce2e0663396dac9c1ad8d8eb1c11eb';
         const plantCache = {};
 
         async function showDetail(plant) {
-            // Ansichten umschalten
             document.getElementById('main-view').classList.add('hidden');
             document.getElementById('detail-view').classList.remove('hidden');
 
-            // Grunddaten setzen
+            document.getElementById('det-id').value = plant.id;
             document.getElementById('det-nickname').textContent = plant.nickname;
             document.getElementById('det-pid').textContent = plant.plantbook_pid;
             
+            // Werte direkt aus der Datenbank in die Input-Felder schreiben
+            document.getElementById('det-min').value = plant.min_moisture;
+            document.getElementById('det-max').value = plant.max_moisture;
+            
             const badge = document.getElementById('det-moisture-badge');
-            badge.textContent = plant.current_moisture + '%';
+            badge.textContent = plant.current_moisture + '% Ist-Wert';
             badge.className = plant.current_moisture < plant.min_moisture 
                 ? 'font-bold px-2.5 py-1 rounded-lg text-sm bg-red-100 text-red-700' 
                 : 'font-bold px-2.5 py-1 rounded-lg text-sm bg-stone-100 text-stone-700';
 
-            // UI für API-Laden vorbereiten
+            // Restliche Infos optional von der API laden
             document.getElementById('api-loading').classList.remove('hidden');
             document.getElementById('api-content').classList.add('hidden');
 
             try {
                 const apiData = await fetchPlantbookData(plant.plantbook_pid);
-                
-                // API-Daten anzeigen
-                document.getElementById('det-ideal-moist').textContent = `${apiData.min_soil_moist}% – ${apiData.max_soil_moist}%`;
                 document.getElementById('det-light').textContent = `${apiData.min_light_lux} – ${apiData.max_light_lux} Lux`;
                 document.getElementById('det-temp').textContent = `${apiData.min_temp}°C – ${apiData.max_temp}°C`;
-                document.getElementById('det-humid').textContent = `${apiData.min_env_humid}% – ${apiData.max_env_humid}%`;
 
                 document.getElementById('api-loading').classList.add('hidden');
                 document.getElementById('api-content').classList.remove('hidden');
             } catch (error) {
-                document.getElementById('api-loading').textContent = 'Konnte keine Zusatzinfos von Plantbook laden.';
+                document.getElementById('api-loading').classList.add('hidden');
             }
         }
 
         function showList() {
             document.getElementById('detail-view').classList.add('hidden');
             document.getElementById('main-view').classList.remove('hidden');
+            location.reload(); // Aktualisiert die Liste beim Zurückkehren
+        }
+
+        async function saveMoisture(event) {
+            event.preventDefault();
+            const btn = document.getElementById('save-btn');
+            btn.textContent = 'Speichere...';
+
+            const formData = new URLSearchParams();
+            formData.append('id', document.getElementById('det-id').value);
+            formData.append('min_moisture', document.getElementById('det-min').value);
+            formData.append('max_moisture', document.getElementById('det-max').value);
+
+            const response = await fetch('update_moisture.php', {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                btn.textContent = 'Erfolgreich gespeichert! ✓';
+                setTimeout(() => {
+                    btn.textContent = 'Änderungen speichern';
+                }, 2000);
+            } else {
+                btn.textContent = 'Fehler beim Speichern!';
+            }
         }
 
         async function fetchPlantbookData(pid) {
@@ -145,7 +182,7 @@ $plants =$stmt->fetchAll(PDO::FETCH_ASSOC);
             const data = await response.json();
             plantCache[cleanPid] = data;
             return data;
- }
+        }
     </script>
 </body>
 </html>
