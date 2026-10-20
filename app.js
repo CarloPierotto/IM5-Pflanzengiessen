@@ -2,6 +2,17 @@ const PLANTBOOK_API_KEY = '50c7f0e511ce2e0663396dac9c1ad8d8eb1c11eb';
 const plantCache = {};
 let currentPlant = null;
 
+// Hilfsfunktion: Blendet alle Ansichten aus
+function hideAllViews() {
+    document.getElementById('main-view').classList.add('hidden');
+    document.getElementById('detail-view').classList.add('hidden');
+    document.getElementById('add-view').classList.add('hidden');
+    document.getElementById('auth-view').classList.add('hidden');
+    
+    const fab = document.getElementById('fab-add-btn');
+    if (fab) fab.classList.add('hidden');
+}
+
 // Übersetzt beliebige englische Texte automatisch auf Deutsch
 async function translateToGerman(text) {
     if (!text) return 'Keine Angabe';
@@ -15,7 +26,6 @@ async function translateToGerman(text) {
     }
 }
 
-// Zeichnet den Rot-Grün-Balken in der Detailansicht
 function updateDetailBar(min, max, current) {
     const cleanMin = Math.max(0, Math.min(100, Number(min)));
     const cleanMax = Math.max(0, Math.min(100, Number(max)));
@@ -32,18 +42,14 @@ function updateDetailBar(min, max, current) {
     document.getElementById('det-ideal-text').textContent = `${cleanMin}% – ${cleanMax}%`;
 }
 
-// Klappt die Bearbeitungsfelder beim Klick auf das Stift-Symbol auf oder zu
 function toggleEditMoisture() {
-    const form = document.getElementById('edit-form');
-    form.classList.toggle('hidden');
+    document.getElementById('edit-form').classList.toggle('hidden');
 }
 
 async function showDetail(plant) {
     currentPlant = plant;
-    document.getElementById('main-view').classList.add('hidden');
-    document.getElementById('add-view').classList.add('hidden');
+    hideAllViews();
     document.getElementById('detail-view').classList.remove('hidden');
-
     document.getElementById('edit-form').classList.add('hidden');
 
     document.getElementById('det-id').value = plant.id;
@@ -75,9 +81,6 @@ async function showDetail(plant) {
 }
 
 function showList() {
-    document.getElementById('detail-view').classList.add('hidden');
-    document.getElementById('add-view').classList.add('hidden');
-    document.getElementById('main-view').classList.remove('hidden');
     location.reload();
 }
 
@@ -143,16 +146,14 @@ async function fetchPlantbookData(pid) {
 }
 
 // =========================================================
-// NEU: PFLANZE HINZUFÜGEN & PLANTBOOK-SUCHE
+// PFLANZE HINZUFÜGEN & PLANTBOOK-SUCHE
 // =========================================================
 
 function showAddView() {
-    document.getElementById('main-view').classList.add('hidden');
-    document.getElementById('detail-view').classList.add('hidden');
+    hideAllViews();
     document.getElementById('add-view').classList.remove('hidden');
 }
 
-// 1. Sucht in der Open Plantbook API nach passenden Pflanzen
 async function searchPlants() {
     const query = document.getElementById('plant-search-input').value.trim();
     const resultsContainer = document.getElementById('search-results');
@@ -199,7 +200,6 @@ async function searchPlants() {
     }
 }
 
-// 2. Übernimmt die ausgewählte Pflanze und lädt automatisch Min/Max Feuchte von der API
 async function selectPlantFromSearch(pid) {
     document.getElementById('new-pid').value = pid;
     document.getElementById('search-results').classList.add('hidden');
@@ -223,12 +223,9 @@ async function selectPlantFromSearch(pid) {
                 document.getElementById('new-max').value = details.max_soil_moist;
             }
         }
-    } catch (e) {
-        // Falls Detailabruf fehlschlägt, bleiben die Standardwerte (20/60) stehen
-    }
+    } catch (e) {}
 }
 
-// 3. Speichert die neue Pflanze in der MySQL-Datenbank
 async function createNewPlant(event) {
     event.preventDefault();
     const pid = document.getElementById('new-pid').value.trim();
@@ -258,10 +255,76 @@ async function createNewPlant(event) {
 
     const result = await response.json();
     if (result.success) {
-        showList(); // Lädt die Übersicht neu, die neue Pflanze ist sofort sichtbar
+        showList();
     } else {
         errorEl.textContent = result.error || 'Fehler beim Speichern.';
         errorEl.classList.remove('hidden');
         submitBtn.textContent = 'Pflanze speichern';
     }
+}
+
+// =========================================================
+// LOGIN, REGISTRIERUNG & LOGOUT
+// =========================================================
+
+function toggleAuthView() {
+    hideAllViews();
+    document.getElementById('auth-view').classList.remove('hidden');
+}
+
+function switchAuthMode() {
+    const actionInput = document.getElementById('auth-action');
+    const title = document.getElementById('auth-title');
+    const submitBtn = document.getElementById('auth-submit-btn');
+    const switchBtn = document.getElementById('auth-switch-btn');
+    const errorEl = document.getElementById('auth-error');
+
+    errorEl.classList.add('hidden');
+
+    if (actionInput.value === 'login') {
+        actionInput.value = 'register';
+        title.textContent = 'Neues Konto erstellen';
+        submitBtn.textContent = 'Registrieren';
+        switchBtn.textContent = 'Bereits ein Konto? Jetzt anmelden';
+    } else {
+        actionInput.value = 'login';
+        title.textContent = 'Anmelden';
+        submitBtn.textContent = 'Anmelden';
+        switchBtn.textContent = 'Noch kein Konto? Jetzt registrieren';
+    }
+}
+
+async function submitAuth(event) {
+    event.preventDefault();
+    const errorEl = document.getElementById('auth-error');
+    errorEl.classList.add('hidden');
+
+    const formData = new URLSearchParams();
+    formData.append('action', document.getElementById('auth-action').value);
+    formData.append('username', document.getElementById('auth-username').value);
+    formData.append('password', document.getElementById('auth-password').value);
+
+    const response = await fetch('auth.php', {
+        method: 'POST',
+        body: formData
+    });
+
+    const result = await response.json();
+    if (result.success) {
+        location.reload();
+    } else {
+        errorEl.textContent = result.error || 'Fehler bei der Anmeldung.';
+        errorEl.classList.remove('hidden');
+    }
+}
+
+async function logoutUser() {
+    const formData = new URLSearchParams();
+    formData.append('action', 'logout');
+
+    await fetch('auth.php', {
+        method: 'POST',
+        body: formData
+    });
+    location.reload();
 }
