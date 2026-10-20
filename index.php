@@ -1,7 +1,7 @@
 <?php
 require_once 'config.php';
 
-// Alle Pflanzen aus der Tabelle holen (inklusive min_moisture und max_moisture)
+// Alle Pflanzen aus der Tabelle holen
 $stmt =$pdo->query("SELECT * FROM plants ORDER BY id ASC");
 $plants =$stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
@@ -74,20 +74,26 @@ $plants =$stmt->fetchAll(PDO::FETCH_ASSOC);
                     </button>
                 </form>
 
-                <!-- Lade-Indikator / Rest-Tipps von Plantbook API -->
+                <!-- Lade-Indikator für Care Information -->
                 <div id="api-loading" class="text-center py-4 text-stone-400 text-xs">
-                    Lade weitere Infos von Open Plantbook...
+                    Lade Care Information von Open Plantbook...
                 </div>
 
-                <!-- Restliche API Infos (Licht & Temperatur) -->
-                <div id="api-content" class="hidden space-y-2 pt-3 border-t border-stone-100 text-sm">
-                    <div class="flex justify-between text-xs">
-                        <span class="text-stone-500">Lichtbedarf:</span>
-                        <span id="det-light" class="font-medium"></span>
+                <!-- Care Information von der API (Light, Fertilization, Pruning) -->
+                <div id="api-content" class="hidden space-y-3 pt-3 border-t border-stone-100 text-sm">
+                    <div class="text-xs font-semibold uppercase text-stone-500">Care Information</div>
+                    
+                    <div>
+                        <span class="text-xs text-stone-500 block font-medium">☀️ Light:</span>
+                        <p id="det-light" class="text-stone-800 text-xs mt-0.5 leading-relaxed"></p>
                     </div>
-                    <div class="flex justify-between text-xs">
-                        <span class="text-stone-500">Temperatur:</span>
-                        <span id="det-temp" class="font-medium"></span>
+                    <div>
+                        <span class="text-xs text-stone-500 block font-medium">⚗️ Fertilization:</span>
+                        <p id="det-fertilization" class="text-stone-800 text-xs mt-0.5 leading-relaxed"></p>
+                    </div>
+                    <div>
+                        <span class="text-xs text-stone-500 block font-medium">✂️ Pruning:</span>
+                        <p id="det-pruning" class="text-stone-800 text-xs mt-0.5 leading-relaxed"></p>
                     </div>
                 </div>
             </div>
@@ -117,19 +123,22 @@ $plants =$stmt->fetchAll(PDO::FETCH_ASSOC);
                 ? 'font-bold px-2.5 py-1 rounded-lg text-sm bg-red-100 text-red-700' 
                 : 'font-bold px-2.5 py-1 rounded-lg text-sm bg-stone-100 text-stone-700';
 
-            // Restliche Infos optional von der API laden
+            // UI für API-Laden vorbereiten
             document.getElementById('api-loading').classList.remove('hidden');
             document.getElementById('api-content').classList.add('hidden');
 
             try {
+                // Parameter ?include=care lädt die gewünschten Care-Inhalte von der API
                 const apiData = await fetchPlantbookData(plant.plantbook_pid);
-                document.getElementById('det-light').textContent = `${apiData.min_light_lux} – ${apiData.max_light_lux} Lux`;
-                document.getElementById('det-temp').textContent = `${apiData.min_temp}°C – ${apiData.max_temp}°C`;
+                
+                document.getElementById('det-light').textContent = apiData.sunlight || 'Keine Angabe';
+                document.getElementById('det-fertilization').textContent = apiData.fertilization || 'Keine Angabe';
+                document.getElementById('det-pruning').textContent = apiData.pruning || 'Keine Angabe';
 
                 document.getElementById('api-loading').classList.add('hidden');
                 document.getElementById('api-content').classList.remove('hidden');
             } catch (error) {
-                document.getElementById('api-loading').classList.add('hidden');
+                document.getElementById('api-loading').textContent = 'Konnte Care Information nicht laden.';
             }
         }
 
@@ -169,7 +178,8 @@ $plants =$stmt->fetchAll(PDO::FETCH_ASSOC);
             const cleanPid = pid.trim().toLowerCase();
             if (plantCache[cleanPid]) return plantCache[cleanPid];
 
-            const url = `https://open.plantbook.io/api/v1/plant/detail/${encodeURIComponent(cleanPid)}/`;
+            // ?include=care angehängt, damit die Care-Informationen mitgeliefert werden
+            const url = `https://open.plantbook.io/api/v1/plant/detail/${encodeURIComponent(cleanPid)}/?include=care`;
             const response = await fetch(url, {
                 method: 'GET',
                 headers: {
